@@ -89,6 +89,7 @@
             });
         });
 
+        // Handle newly added slides
         document.getElementById('add-slide').addEventListener('click', () => {
             socket.emit('add_slide');
         });
@@ -100,6 +101,7 @@
             }
         });
 
+        // Show slide and initialize canvas
         function showSlide(slideId) {
             currentSlideId = slideId;
             const slideArea = document.getElementById('slide-area');
@@ -164,6 +166,18 @@
                 }
             });
         }
+
+        // New: Receive and render existing drawings when a user joins
+        socket.on('drawings_updated', (drawingsData) => {
+            Object.keys(drawingsData).forEach(slideId => {
+                drawings[slideId] = drawingsData[slideId]; // Store the received drawings
+                const canvas = document.querySelector(`#slide-area canvas[data-slide-id="${slideId}"]`);
+                const ctx = canvas.getContext('2d');
+                drawings[slideId].forEach(({ x, y, newX, newY }) => {
+                    drawLine(ctx, x, y, newX, newY); // Render each line on the canvas
+                });
+            });
+        });
 
         function drawLine(ctx, x, y, newX, newY) {
             ctx.beginPath();
