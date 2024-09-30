@@ -26,6 +26,12 @@
             <button id="edit-mode"
                 class="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 transition">Toggle Edit
                 Mode</button>
+            <button id="eraser-mode"
+                class="bg-red-500 text-white py-2 px-4 rounded hover:bg-red-600 transition">Eraser</button>
+            <button id="export-pdf"
+                class="bg-purple-500 text-white py-2 px-4 rounded hover:bg-purple-600 transition">Export to PDF</button>
+
+
         </div>
         <div id="slide-area" class="flex-1 bg-white border border-gray-300 rounded p-4 overflow-auto">
             <!-- Canvas will be added here for drawing -->
@@ -39,10 +45,12 @@
         </ul>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
     <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script> <!-- Include the Socket.IO client -->
     <script>
         const socket = io('http://127.0.0.1:3000');  // Initialize the WebSocket connection
         let isDrawing = false;
+        let isErasing = false; // Track whether eraser mode is active
         let x = 0;
         let y = 0;
         let currentSlideId = null;
@@ -116,6 +124,15 @@
             }
         });
 
+        // Add event listener for eraser mode button
+        document.getElementById('eraser-mode').addEventListener('click', () => {
+            isErasing = !isErasing; // Toggle eraser mode
+            const button = document.getElementById('eraser-mode');
+            button.classList.toggle('bg-gray-500', isErasing);
+            button.classList.toggle('hover:bg-gray-600', isErasing);
+            button.textContent = isErasing ? 'Drawing' : 'Eraser';
+        });
+
         function showSlide(slideId) {
             currentSlideId = slideId;
             const slideArea = document.getElementById('slide-area');
@@ -145,19 +162,31 @@
                         const rect = canvas.getBoundingClientRect();
                         const newX = e.clientX - rect.left;
                         const newY = e.clientY - rect.top;
-                        drawLine(ctx, x, y, newX, newY);
-                        socket.emit('draw', { presentationId, slideId, x, y, newX, newY });
-                        if (!drawings[slideId]) {
-                            drawings[slideId] = [];
+
+                        if (isErasing) {
+                            // Erasing logic
+                            eraseLine(ctx, newX, newY);
+                            socket.emit('erase', { presentationId, slideId, newX, newY });
+                        } else {
+                            drawLine(ctx, x, y, newX, newY);
+                            socket.emit('draw', { presentationId, slideId, x, y, newX, newY });
+                            if (!drawings[slideId]) {
+                                drawings[slideId] = [];
+                            }
+                            drawings[slideId].push({ x, y, newX, newY });
                         }
-                        drawings[slideId].push({ x, y, newX, newY });
+
                         x = newX;
                         y = newY;
                     }
                 });
 
-                canvas.addEventListener('mouseup', () => isDrawing = false);
-                canvas.addEventListener('mouseout', () => isDrawing = false);
+                canvas.addEventListener('mouseup', () => {
+                    isDrawing = false;
+                });
+                canvas.addEventListener('mouseout', () => {
+                    isDrawing = false;
+                });
             }
 
             socket.on('draw_line', ({ slideId: receivedSlideId, x, y, newX, newY }) => {
@@ -167,6 +196,13 @@
                         drawings[receivedSlideId] = [];
                     }
                     drawings[receivedSlideId].push({ x, y, newX, newY });
+                }
+            });
+
+            // Handle erase events from other users
+            socket.on('erase_line', ({ slideId: receivedSlideId, newX, newY }) => {
+                if (receivedSlideId === currentSlideId) {
+                    eraseLine(ctx, newX, newY);
                 }
             });
         }
@@ -194,7 +230,49 @@
             ctx.stroke();
             ctx.closePath();
         }
+
+        function eraseLine(ctx, newX, newY) {
+            ctx.clearRect(newX - 10, newY - 10, 20, 20); // Clear a small area around the mouse position to simulate erasing
+        }
+
+        document.getElementById('export-pdf').addEventListener('click', () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF(); // Create a new jsPDF instance
+
+            let currentSlideIndex = 0;
+
+            // Iterate over all slides
+            Object.keys(drawings).forEach((slideId, index) => {
+                const slideCanvas = document.createElement('canvas');
+                slideCanvas.width = 1024; // Set desired width for the PDF
+                slideCanvas.height = 768; // Set desired height for the PDF
+                const ctx = slideCanvas.getContext('2d');
+
+                // Render drawings for each slide on its own canvas
+                drawings[slideId].forEach(({ x, y, newX, newY, color, tool }) => {
+                    ctx.strokeStyle = color || 'black'; // Use saved color, default to black
+                    ctx.lineWidth = tool === 'pen' ? 2 : 1;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(newX, newY);
+                    ctx.stroke();
+                });
+
+                // Convert canvas to image and add to PDF
+                const slideImage = slideCanvas.toDataURL('image/png');
+                if (index > 0) {
+                    doc.addPage(); // Add a new page for each subsequent slide
+                }
+                doc.addImage(slideImage, 'PNG', 10, 10, 190, 150); // Position and size the image
+
+                currentSlideIndex++;
+            });
+
+            // Save the PDF
+            doc.save('presentation.pdf');
+        });
     </script>
+
 </body>
 
 </html>
