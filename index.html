@@ -17,15 +17,12 @@
     <div id="left-panel" class="w-1/5 bg-white shadow-md p-4">
         <h3 class="text-lg font-semibold mb-2">Slides</h3>
         <div id="slides" class="mb-4"></div>
-        <button id="add-slide" class="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 transition">Add
-            Slide</button>
+        <button id="add-slide" class="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 transition">Add Slide</button>
     </div>
 
     <div id="slides-container" class="flex-1 flex flex-col p-4">
         <div id="controls" class="mb-4">
-            <button id="edit-mode"
-                class="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 transition">Toggle Edit
-                Mode</button>
+            <button id="edit-mode" class="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 transition">Toggle Edit Mode</button>
         </div>
         <div id="slide-area" class="flex-1 bg-white border border-gray-300 rounded p-4 overflow-auto">
             <!-- Canvas will be added here for drawing -->
@@ -46,6 +43,7 @@
         let x = 0;
         let y = 0;
         let currentSlideId = null;
+        const drawings = {}; // Store drawings for each slide
 
         // Prompt for nickname and presentation ID
         const nickname = prompt("Enter your nickname");
@@ -114,6 +112,13 @@
             slideArea.appendChild(canvas);
             const ctx = canvas.getContext('2d');
 
+            // Draw previously saved lines if any
+            if (drawings[slideId]) {
+                drawings[slideId].forEach(({ x, y, newX, newY }) => {
+                    drawLine(ctx, x, y, newX, newY);
+                });
+            }
+
             // Mouse events for drawing
             canvas.addEventListener('mousedown', (e) => {
                 const rect = canvas.getBoundingClientRect();
@@ -129,11 +134,15 @@
                     const newY = e.clientY - rect.top;
                     drawLine(ctx, x, y, newX, newY);
                     socket.emit('draw', { presentationId, slideId, x, y, newX, newY });
+                    // Save drawing
+                    if (!drawings[slideId]) {
+                        drawings[slideId] = [];
+                    }
+                    drawings[slideId].push({ x, y, newX, newY });
                     x = newX;
                     y = newY;
                 }
             });
-
 
             canvas.addEventListener('mouseup', () => {
                 isDrawing = false;
@@ -147,6 +156,11 @@
             socket.on('draw_line', ({ slideId: receivedSlideId, x, y, newX, newY }) => {
                 if (receivedSlideId === currentSlideId) {
                     drawLine(ctx, x, y, newX, newY);
+                    // Save drawing
+                    if (!drawings[receivedSlideId]) {
+                        drawings[receivedSlideId] = [];
+                    }
+                    drawings[receivedSlideId].push({ x, y, newX, newY });
                 }
             });
         }
