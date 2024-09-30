@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborative Presentation</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        #slide-area canvas {
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+
+<body class="flex h-screen bg-gray-100">
+    <div id="left-panel" class="w-1/5 bg-white shadow-md p-4">
+        <h3 class="text-lg font-semibold mb-2">Slides</h3>
+        <div id="slides" class="mb-4"></div>
+        <button id="add-slide" class="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 transition">Add
+            Slide</button>
+    </div>
+
+    <div id="slides-container" class="flex-1 flex flex-col p-4">
+        <div id="controls" class="mb-4">
+            <button id="edit-mode"
+                class="bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 transition">Toggle Edit
+                Mode</button>
+        </div>
+        <div id="slide-area" class="flex-1 bg-white border border-gray-300 rounded p-4 overflow-auto">
+            <!-- Canvas will be added here for drawing -->
+        </div>
+    </div>
+
+    <div id="right-panel" class="w-1/5 bg-white shadow-md p-4">
+        <h3 class="text-lg font-semibold mb-2">Connected Users</h3>
+        <ul id="users-list" class="list-none p-0">
+            <!-- User list will be populated here -->
+        </ul>
+    </div>
+
+    <script src="http://127.0.0.1:3000/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io('http://127.0.0.1:3000');
+        let isDrawing = false;
+        let x = 0;
+        let y = 0;
+        let currentSlideId = null;
+
+        // Prompt for nickname and presentation ID
+        const nickname = prompt("Enter your nickname");
+        const presentationId = prompt("Enter presentation ID or create new");
+
+        socket.emit('join_presentation', { presentationId, nickname });
+
+        // Handle user updates
+        socket.on('update_users', (users) => {
+            const usersList = document.getElementById('users-list');
+            usersList.innerHTML = '';
+            Object.keys(users).forEach(userId => {
+                const user = users[userId];
+                const userItem = document.createElement('li');
+                userItem.className = 'py-1 border-b border-gray-200 flex justify-between items-center';
+                userItem.textContent = `${user.nickname} (${user.role})`;
+
+                // Create a button to toggle role
+                const toggleButton = document.createElement('button');
+                toggleButton.className = `ml-2 py-1 px-2 rounded transition ${user.role === 'editor' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
+                toggleButton.textContent = user.role === 'editor' ? 'Revoke Edit' : 'Make Editor';
+
+                toggleButton.onclick = () => {
+                    const newRole = user.role === 'editor' ? 'viewer' : 'editor';
+                    socket.emit('assign_role', { userId, role: newRole });
+                };
+
+                userItem.appendChild(toggleButton);
+                usersList.appendChild(userItem);
+            });
+        });
+
+        // Handle slides update
+        const slidesContainer = document.getElementById('slides');
+        socket.on('slides_updated', (slides) => {
+            slidesContainer.innerHTML = '';
+            slides.forEach((slide, index) => {
+                const slideDiv = document.createElement('div');
+                slideDiv.className = 'bg-gray-200 text-center p-2 mb-2 cursor-pointer rounded hover:bg-gray-300 transition';
+                slideDiv.textContent = `Slide ${index + 1}`;
+                slideDiv.addEventListener('click', () => showSlide(index));
+                slidesContainer.appendChild(slideDiv);
+            });
+        });
+
+        document.getElementById('add-slide').addEventListener('click', () => {
+            socket.emit('add_slide');
+        });
+
+        // Handle slide content updates
+        socket.on('slide_updated', ({ slideId, content }) => {
+            if (document.getElementById('slide-area').textContent.includes(`Slide ${slideId}`)) {
+                document.getElementById('slide-area').textContent = content;
+            }
+        });
+
+        function showSlide(slideId) {
+            currentSlideId = slideId;
+            const slideArea = document.getElementById('slide-area');
+            slideArea.innerHTML = ''; // Clear previous content
+
+            // Create canvas for drawing
+            const canvas = document.createElement('canvas');
+            canvas.width = slideArea.clientWidth;
+            canvas.height = slideArea.clientHeight;
+            slideArea.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+
+            // Mouse events for drawing
+            canvas.addEventListener('mousedown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                x = e.clientX - rect.left;
+                y = e.clientY - rect.top;
+                isDrawing = true;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDrawing) {
+                    const rect = canvas.getBoundingClientRect();
+                    const newX = e.clientX - rect.left;
+                    const newY = e.clientY - rect.top;
+                    drawLine(ctx, x, y, newX, newY);
+                    socket.emit('draw', { presentationId, slideId, x, y, newX, newY });
+                    x = newX;
+                    y = newY;
+                }
+            });
+
+
+            canvas.addEventListener('mouseup', () => {
+                isDrawing = false;
+            });
+
+            canvas.addEventListener('mouseout', () => {
+                isDrawing = false;
+            });
+
+            // Receive and draw lines from others
+            socket.on('draw_line', ({ slideId: receivedSlideId, x, y, newX, newY }) => {
+                if (receivedSlideId === currentSlideId) {
+                    drawLine(ctx, x, y, newX, newY);
+                }
+            });
+        }
+
+        function drawLine(ctx, x, y, newX, newY) {
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(newX, newY);
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.closePath();
+        }
+    </script>
+</body>
+
+</html>
