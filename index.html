@@ -36,16 +36,15 @@
         </ul>
     </div>
 
-    <script src="http://127.0.0.1:3000/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script> <!-- Include the Socket.IO client -->
     <script>
-        const socket = io('http://127.0.0.1:3000');
+        const socket = io('http://127.0.0.1:3000');  // Initialize the WebSocket connection
         let isDrawing = false;
         let x = 0;
         let y = 0;
         let currentSlideId = null;
         const drawings = {}; // Store drawings for each slide
 
-        // Prompt for nickname and presentation ID
         const nickname = prompt("Enter your nickname");
         const presentationId = prompt("Enter presentation ID or create new");
 
@@ -61,7 +60,6 @@
                 userItem.className = 'py-1 border-b border-gray-200 flex justify-between items-center';
                 userItem.textContent = `${user.nickname} (${user.role})`;
 
-                // Create a button to toggle role
                 const toggleButton = document.createElement('button');
                 toggleButton.className = `ml-2 py-1 px-2 rounded transition ${user.role === 'editor' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-blue-500 text-white hover:bg-blue-600'}`;
                 toggleButton.textContent = user.role === 'editor' ? 'Revoke Edit' : 'Make Editor';
@@ -89,39 +87,43 @@
             });
         });
 
-        // Handle newly added slides
+        // Event handler for receiving existing drawings when a user joins
+        socket.on('drawings_updated', (drawingsData) => {
+            Object.keys(drawingsData).forEach(slideId => {
+                drawings[slideId] = drawingsData[slideId]; // Store the received drawings
+            });
+
+            // Optionally, render the drawings for the currently visible slide
+            if (currentSlideId !== null) {
+                renderDrawings(currentSlideId);
+            }
+        });
+
         document.getElementById('add-slide').addEventListener('click', () => {
             socket.emit('add_slide');
         });
 
-        // Handle slide content updates
         socket.on('slide_updated', ({ slideId, content }) => {
             if (document.getElementById('slide-area').textContent.includes(`Slide ${slideId}`)) {
                 document.getElementById('slide-area').textContent = content;
             }
         });
 
-        // Show slide and initialize canvas
         function showSlide(slideId) {
             currentSlideId = slideId;
             const slideArea = document.getElementById('slide-area');
             slideArea.innerHTML = ''; // Clear previous content
 
-            // Create canvas for drawing
             const canvas = document.createElement('canvas');
             canvas.width = slideArea.clientWidth;
             canvas.height = slideArea.clientHeight;
+            canvas.dataset.slideId = slideId; // Store slide ID in the canvas element
             slideArea.appendChild(canvas);
             const ctx = canvas.getContext('2d');
 
             // Draw previously saved lines if any
-            if (drawings[slideId]) {
-                drawings[slideId].forEach(({ x, y, newX, newY }) => {
-                    drawLine(ctx, x, y, newX, newY);
-                });
-            }
+            renderDrawings(slideId);
 
-            // Mouse events for drawing
             canvas.addEventListener('mousedown', (e) => {
                 const rect = canvas.getBoundingClientRect();
                 x = e.clientX - rect.left;
@@ -136,7 +138,6 @@
                     const newY = e.clientY - rect.top;
                     drawLine(ctx, x, y, newX, newY);
                     socket.emit('draw', { presentationId, slideId, x, y, newX, newY });
-                    // Save drawing
                     if (!drawings[slideId]) {
                         drawings[slideId] = [];
                     }
@@ -146,19 +147,12 @@
                 }
             });
 
-            canvas.addEventListener('mouseup', () => {
-                isDrawing = false;
-            });
+            canvas.addEventListener('mouseup', () => isDrawing = false);
+            canvas.addEventListener('mouseout', () => isDrawing = false);
 
-            canvas.addEventListener('mouseout', () => {
-                isDrawing = false;
-            });
-
-            // Receive and draw lines from others
             socket.on('draw_line', ({ slideId: receivedSlideId, x, y, newX, newY }) => {
                 if (receivedSlideId === currentSlideId) {
                     drawLine(ctx, x, y, newX, newY);
-                    // Save drawing
                     if (!drawings[receivedSlideId]) {
                         drawings[receivedSlideId] = [];
                     }
@@ -167,17 +161,19 @@
             });
         }
 
-        // New: Receive and render existing drawings when a user joins
-        socket.on('drawings_updated', (drawingsData) => {
-            Object.keys(drawingsData).forEach(slideId => {
-                drawings[slideId] = drawingsData[slideId]; // Store the received drawings
-                const canvas = document.querySelector(`#slide-area canvas[data-slide-id="${slideId}"]`);
+        function renderDrawings(slideId) {
+            const slideArea = document.getElementById('slide-area');
+            const canvas = slideArea.querySelector('canvas[data-slide-id="' + slideId + '"]');
+            if (canvas) {
                 const ctx = canvas.getContext('2d');
-                drawings[slideId].forEach(({ x, y, newX, newY }) => {
-                    drawLine(ctx, x, y, newX, newY); // Render each line on the canvas
-                });
-            });
-        });
+                ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas before redrawing
+                if (drawings[slideId]) {
+                    drawings[slideId].forEach(({ x, y, newX, newY }) => {
+                        drawLine(ctx, x, y, newX, newY); // Render each line on the canvas
+                    });
+                }
+            }
+        }
 
         function drawLine(ctx, x, y, newX, newY) {
             ctx.beginPath();
