@@ -1,4 +1,4 @@
-const socket = io('https://task6-three-iota.vercel.app', {
+const socket = io('http://127.0.0.1:3000', {
     transports: ['polling'],  // Use polling instead of WebSockets
 });
 
@@ -228,4 +228,3 @@ document.getElementById('export-pdf').addEventListener('click', () => {
     // Save the PDF
     doc.save('presentation.pdf');
 });
-    
